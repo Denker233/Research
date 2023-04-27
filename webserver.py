@@ -30,9 +30,6 @@ def boost_handler(request):
     # headers = {"Authorization": "Bearer my_token"}
     # return 'Success'
     return data
-    # response = requests.post(url, data=data)
-    # response = requests.post(url, data=data, headers=headers)
-    # print(response.text)
 
 
 @app.route('/post', methods=['POST'])
@@ -42,8 +39,9 @@ def post_handler():
         return data
     elif request.form["type"] == "beat": 
         print("in beat handler")
-        data = {"result":"pong from server"}
+        # data = {"result":"pong from server"}
         #if there is a automation uploaded
+        data = {"url":"https://dcsg-diot-frontend-kanishk-k.vercel.app/api/fetchModule/kanishk.py","result":"pong from server"}
         return data 
     return "success"
     

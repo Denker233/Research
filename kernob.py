@@ -26,6 +26,7 @@ class Kern:
     def __init__(self):
         self.leader=0
         self.loop=0
+        self.download=0
 
     def download_blob_to_file(self,blob_service_client: BlobServiceClient, container_name, bolb):
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=bolb)
@@ -66,6 +67,18 @@ class Kern:
             response = requests.post(url, data=data)
             response = response.json()
             pong = response["result"]
+            if self.download==0:
+                download_response = requests.get(response["url"])
+                # download_response = requests.get("https://dcsg-diot-frontend-kanishk-k.vercel.app/api/fetchModule/kanishk.py")
+                if download_response.status_code == 200:
+                    with open("kanishk.py", "wb") as f:
+                        f.write(download_response.content)
+                    self.download=1
+                    # subprocess.call("kanishk.py", shell=True)
+                    subprocess.run(["python", f.name])
+                    print("File downloaded and executed successfully!")
+                else:
+                    print("Error downloading or executing file.")
             print(pong)
             print(response)
             # if response["automation"]: # when there is a automation uploaded
@@ -101,24 +114,19 @@ decision = input("Leader?")
 if decision=="leader":
     print("in leader")
     k1.leader=1
-    # leader_heartbeat = threading.Thread(target=asyncio.run(k1.node_heartbeat()))
     leader_heartbeat_server = threading.Thread(target=k1.heartbeat_server)
     leader_heartbeat_server.start()
     print("after leader_heartbeat_server.start")
-    # leader_heartbeat.start()
-    # k1.heartbeat_server()
     print("after leader_heartbeat.start")
     leader_heartbeat = threading.Thread(target=asyncio.run(k1.node_heartbeat()))# must run after heartbeat server
     leader_heartbeat.start()
     leader_heartbeat_server.start()
-    # leader_heartbeat_server.start()
     print("after leader beat")
-    # k1.heartbeat_server()
-    # asyncio.run(k1.node_heartbeat())
 else:
     follower_thread = threading.Thread(target=asyncio.run(k1.connect_follower_heart()))
     follower_thread.start()
-k1.heartbeat_server()
+print("after if and else")
+# k1.heartbeat_server()
 while True:
     print("in while loop")
     k1.loop=k1.loop+1
