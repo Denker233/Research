@@ -71,10 +71,11 @@ class Kern:
                 download_response = requests.get(response["url"])
                 # download_response = requests.get("https://dcsg-diot-frontend-kanishk-k.vercel.app/api/fetchModule/kanishk.py")
                 if download_response.status_code == 200:
-                    with open("kanishk.py", "wb") as f:
+                    with open("nightlight/minrui.py", "wb") as f:
                         f.write(download_response.content)
                     self.download=1
                     # subprocess.call("kanishk.py", shell=True)
+                    print(f.name)
                     subprocess.run(["python", f.name])
                     print("File downloaded and executed successfully!")
                 else:

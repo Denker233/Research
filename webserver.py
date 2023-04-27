@@ -41,7 +41,7 @@ def post_handler():
         print("in beat handler")
         # data = {"result":"pong from server"}
         #if there is a automation uploaded
-        data = {"url":"https://dcsg-diot-frontend-kanishk-k.vercel.app/api/fetchModule/kanishk.py","result":"pong from server"}
+        data = {"url":"https://dcsg-diot-frontend-kanishk-k.vercel.app/api/fetchModule/minrui.py","result":"pong from server"}
         return data 
     return "success"
     
