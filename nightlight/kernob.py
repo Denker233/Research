@@ -51,7 +51,7 @@ class Kern:
         return 'Success'
 
     def boot(self):
-        url = 'http://localhost:8000/post'
+        url = 'http://localhost:8001/post'
         data = {"type":"boot", "ID": ID, "device_name": device_name}
         response = requests.post(url, data=data)
         response = response.json()
@@ -62,7 +62,7 @@ class Kern:
         while True:
             print("in heart beat server")
             time.sleep(5)
-            url = 'http://localhost:8000/post'
+            url = 'http://localhost:8001/post'
             data = {"type":"beat", "ID": ID, "device_name": device_name}
             response = requests.post(url, data=data)
             response = response.json()
