@@ -9,41 +9,63 @@ from flask import Flask, request
 app = Flask(__name__)
 
 
-
+read_IDs = ["node1"]
+write_IDs = ["node1"]
+node_map = []
+module_name = ""
 
 
 def boost_handler(request):
-    device_ID = request.form["ID"]
-    device_name=request.form["device_name"]
+    # device_ID = request.form["ID"]
+    node_ID=request.form["node_ID"]
+    credential = "xxxx"
+    print("node ID: {}".format(node_ID))
     ##check credential has't been implemented
+    node = {
+        'node_ID': node_ID,
+        'running_modules': [],
+        'cached_modules': []
+    }
+    node_map.append(node)
     print("here")
-    account_name = "denker233"
-    ID = "9fb428d9-e5fe-40d6-857c-ad8f5813bcd7"
-    port = 6262
-    hostname = "csel-kh1250-10"
-
-    # url = 'http://localhost:8000/post'
-    container = "diotauto"
-    bolb = "test.py"
-    data = {"ID": ID, "container": container,"bolb":bolb,"account_name":account_name}
+    data = {"credential":credential}
     print(data)
     # headers = {"Authorization": "Bearer my_token"}
     # return 'Success'
     return data
-
+    
+        
 
 @app.route('/post', methods=['POST'])
 def post_handler():
-    if request.form["type"] == "boot":
-        data = boost_handler(request)
-        return data
-    elif request.form["type"] == "beat": 
-        print("in beat handler")
-        # data = {"result":"pong from server"}
-        #if there is a automation uploaded
-        data = {"url":"https://dcsg-diot-frontend-kanishk-k.vercel.app/api/fetchModule/minrui.py","result":"pong from server"}
-        return data 
-    return "success"
+    global module_name
+    if request.form["node_ID"] in read_IDs or request.form["node_ID"] in write_IDs:
+        if request.form["type"] == "boot":
+            data = boost_handler(request)
+            return data
+        elif request.form["type"] == "beat": #need modification to check credential
+            print("in beat handler")
+            for node in node_map:
+                if node["node_ID"]==request.form["node_ID"]:
+                    print("two IDs are equal")
+                    print(request.form.get("running_modules"))
+                    if request.form.get("running_modules") is not None:
+                        node["running_modules"]=request.form["running_modules"]
+                        print("after equalize two running modules")
+                    if request.form.get("cached_modules") is not None:
+                        node["cached_modules"]=request.form["cached_modules"]
+                        print("after equalize two cached_modules")
+                    if module_name not in node["running_modules"] or module_name not in node["cached_modules"]:
+                        module_name = "minrui"
+                        print("before data is formated")
+                        data = {"url":"https://dcsg-diot-frontend-kanishk-k.vercel.app/api/fetchModule/{}.py".format(module_name),"result":"pong from server","module_name":module_name}
+                        print("link send to leader")
+                        return data
+                    else:
+                        return 
+            #if there is a automation uploaded, it should trigger the change of module name then it will be sent to the leader node when the next heartbeat happen
+            
+        return "success"
     
 
 

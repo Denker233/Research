@@ -11,12 +11,19 @@ from flask import Flask, request
 import time
 import threading
 import subprocess
+import tool
+import psutil
+import sys
 
 
 
-ID = "xxxx"
-device_name="node1"
+node_ID = "node1"
 loop=0
+running_modules = [] #for each node
+connected_clients = set() #for leader node
+client_map = [] #for leader node
+module_to_assign_map=[] #wait to be assigned to other nodes
+cached_modules=[] # a remove element from list need to be implemented to make space for popular ones
 
 
 
@@ -27,110 +34,201 @@ class Kern:
         self.leader=0
         self.loop=0
         self.download=0
+        self.credential=None
 
-    def download_blob_to_file(self,blob_service_client: BlobServiceClient, container_name, bolb):
-        blob_client = blob_service_client.get_blob_client(container=container_name, blob=bolb)
-        with open(file=os.path.join('/home/tian0138/csci-5105/Research', bolb), mode="wb") as sample_blob:
-            download_stream = blob_client.download_blob()
-            sample_blob.write(download_stream.readall())
-            return sample_blob.name
-    def handle_post_request(self,response):
-        # Get the data from the request body
-        print("in download")
-        ID = response["ID"]
-        container = response["container"]
-        bolb = response["bolb"]
-        account_name = response["account_name"]
-        account_url = "https://{}.blob.core.windows.net".format(account_name)
-        blob_service_client = BlobServiceClient(account_url=account_url)
-        filepath=self.download_blob_to_file(blob_service_client,container,bolb)
-        # Process the data...
-        print("success")
-        print(filepath)
-        subprocess.run(["python", filepath])
-        return 'Success'
 
     def boot(self):
         url = 'http://localhost:8001/post'
-        data = {"type":"boot", "ID": ID, "device_name": device_name}
+        data = {"type":"boot", "node_ID": node_ID}
         response = requests.post(url, data=data)
         response = response.json()
+        self.credential = response["credential"]
         print(response)
-        self.handle_post_request(response)
     
     def heartbeat_server(self):
         while True:
             print("in heart beat server")
             time.sleep(5)
             url = 'http://localhost:8001/post'
-            data = {"type":"beat", "ID": ID, "device_name": device_name}
+            data = {"type":"beat", "node_ID": node_ID,"running_modules": running_modules,"cached_modules":cached_modules}
             response = requests.post(url, data=data)
             response = response.json()
             pong = response["result"]
+            module_name = response["module_name"]
             if self.download==0:
                 download_response = requests.get(response["url"])
-                # download_response = requests.get("https://dcsg-diot-frontend-kanishk-k.vercel.app/api/fetchModule/kanishk.py")
                 if download_response.status_code == 200:
-                    with open("minrui.py", "wb") as f:
+                    with open(module_name+".py", "wb") as f:
                         f.write(download_response.content)
+                        cached_modules.append(module_name)
                     self.download=1
-                    # subprocess.call("kanishk.py", shell=True)
                     print(f.name)
-                    subprocess.run(["python", f.name])
+                    leadder_cpu = psutil.cpu_percent(interval=1)
+                    leader_memory =psutil.virtual_memory().percent
+                    leader_network=0.0
+                    leader_node = {
+                        'websocket': -1,
+                        'cpu_usage':  leadder_cpu,
+                        'memory_usage': leader_memory,
+                        'network_latency': leader_network,
+                        'score': tool.weighted_score(leadder_cpu,leader_memory,leader_network)
+                    }
+                    client_map.append(leader_node)
+                    sorted_client_map = sorted(client_map, key=lambda x: x['score'])
+                    chosed_websocket = sorted_client_map[0]["websocket"]
+                    # #use weighted round roubin to get the specific node to assign module
+                    # weights = [1 / (client["cpu_usage"] * client["memory_usage"] * client["network_latency"]) for client in client_map]
+                    # # Normalize the weights
+                    # total_weight = sum(weights)
+                    # weights = [weight / total_weight for weight in weights]
+                    # algorithm = tool.weighted_round_robin(client_map,weights)["websocket"]
+                    # chosed_websocket = next(algorithm)
+                    if chosed_websocket == -1: # run at the leader node
+                        subprocess.run(["python3", f.name])
+                    else: #add to the ready to assign map and assign them at the next heartbeat cycle
+                        #need to time it if it doesn't send to the specific node and try the next best node
+                        module_to_assign_map.append({websocket,module_name, download_response.content})
                     print("File downloaded and executed successfully!")
                 else:
                     print("Error downloading or executing file.")
             print(pong)
             print(response)
-            # if response["automation"]: # when there is a automation uploaded
-            #     self.handle_post_request(response)
 
-    async def node_heartbeat_response(self,websocket):
-        async for message in websocket:
-            components=message.split('!')
-            if len(components)==1:#ping
-                ping=components[0]
-                print(ping)
-                response="pong"
-            else:
-                response="wrong"
-            expiration=500
-            await websocket.send(response)
-
-    async def node_heartbeat(self):#leader send
+    async def node_heartbeat(self,port):#follower send
+        url = "ws://localhost:{}".format(port)
         while True:
             time.sleep(2)
-            async with websockets.connect("ws://localhost:8765",ping_interval=None) as websocket:
-                await websocket.send("ping") 
+            async with websockets.connect(url,ping_interval=None) as websocket:
+                cpu_usage = psutil.cpu_percent(interval=1)
+                memory_usage = psutil.virtual_memory().percent
+                await websocket.send("ping: {}, cpu usage: {}, memory_usage: {}".format(port,cpu_usage,memory_usage)) 
                 result = await websocket.recv()
-                print(result)
+                if result.split(":")[0]=="pong":
+                    print(result)
+                else:#recv a module:content download and run it
+                    module_name = result.split(":")[0]
+                    module_content = result.split(":")[1]
+                    with open(module_name+".py", "wb") as f:
+                        f.write(download_response.content)
+                        cached_moduels.append(module_name)
+                    subprocess.run(["python3", f.name])
+                    modules_running.append(module_name)
+    
+    async def handle_connection(self,websocket, path): #leader get data from follower
+        # Add the client to the set of connected clients
+        connected_clients.add(websocket)
+        client_id = id(websocket)
+        client_map.append ({
+            'websocket': websocket,
+            'cpu_usage': 0.0,
+            'memory_usage': 0.0,
+            'network_latency': 0.0,
+            'score': sys.float_info.max
+        })
 
-    async def connect_follower_heart(self):#follower must run first
-        async with websockets.serve(self.node_heartbeat_response, "localhost", 8765,ping_interval=None):
-            await asyncio.Future()  # run forever
+        try:
+            while True:
+
+                for item in module_to_assign_map:
+                    # if websocket matches then send the module content to the client
+                    if item[0] == websocket:
+                        response = item[1]+":"+item[2] #module_name:content
+                        await websocket.send(response)
+                        module_to_assign_map.remove(item) #remove the module sent from the list
+                # Receive message from the client
+                start_time = time.time()
+                message = await websocket.recv()
+                end_time = time.time()
+                print(f"Received message: {message}")
+                network_latency = end_time - start_time
+
+                components=message.split(',')
+                if len(components)>=1:#ping
+                    ping=components[0].split(":")[1]
+                    cpu_usage=components[1].split(":")[1]
+                    memory_usage=components[2].split(":")[1]
+                    print(ping)
+                    response="pong:"
+                    client_map[-1]['cpu_usage'] = cpu_usage
+                    client_map[-1]['memory_usage'] = memory_usage
+                    client_map[-1]['network_latency'] = network_latency
+                    client_map[-1]['score'] = tool.weighted_score(cpu_usage,memory_usage,network_latency)
+                    
+                    print("network latency: {}".format(network_latency))
+                else:
+                    response="wrong"
+                expiration=500
+                await websocket.send(response)
+
+                
+        except websockets.exceptions.ConnectionClosed:
+            pass
+        finally:
+            # Remove the client from the set of connected clients
+            connected_clients.remove(websocket)
+
+# Start the WebSocket server
+    async def start_server(self):
+        async with websockets.serve(self.handle_connection, 'localhost', 8765):
+            await asyncio.Future()  # Run forever
+    
 
 k1=Kern()
 k1.boot()
 decision = input("Leader?")
+ports_websocket = []
 if decision=="leader":
     print("in leader")
     k1.leader=1
-    leader_heartbeat_server = threading.Thread(target=k1.heartbeat_server)
+    node_max_num=int(input("How many nodes do you want to handle at most?"))
+    module_to_assign_map= [] * node_max_num
+    ports_websocket = tool.get_available_ports(6000,6000+int(node_max_num))# test for 10 ports reserved for websocket
+    tool.write_port_to_file(ports_websocket)
+    leader_heartbeat_server = threading.Thread(target=k1.heartbeat_server)# heartbeat frontend server
     leader_heartbeat_server.start()
     print("after leader_heartbeat_server.start")
-    print("after leader_heartbeat.start")
-    leader_heartbeat = threading.Thread(target=asyncio.run(k1.node_heartbeat()))# must run after heartbeat server
-    leader_heartbeat.start()
-    leader_heartbeat_server.start()
-    print("after leader beat")
+    # leader_heartbeat_threads = []
+    # for i in range(0,node_max_num):
+    #     print(f"i:{i} and port number at the leader side: {ports_websocket[i]}")
+    #     loop = k1.create_event_loop()
+    #     leader_heartbeat_thread = threading.Thread(target=k1.run_connect_follower_heart(str(ports_websocket[i]),loop))
+    #     # leader_heartbeat_thread = threading.Thread(target=asyncio.run(k1.connect_follower_heart(str(ports_websocket[i]))))# must run after heartbeat server
+    #     leader_heartbeat_thread.start()
+    #     leader_heartbeat_threads.append(leader_heartbeat_thread)
+    #     print("creat each thread{i}")
+    # print("after leader beat")
+    
+    # leader_heartbeat_tasks = []
+
+    # for i in range(0, node_max_num):
+    #     print(f"i: {i} and port number at the leader side: {ports_websocket[i]}")
+    #     task = asyncio.create_task(k1.connect_follower_heart(str(ports_websocket[i])))
+    #     leader_heartbeat_tasks.append(task)
+    #     print(f"created task {i}")
+
+    # # Run the event loop to execute all tasks
+    # asyncio.run(asyncio.wait(leader_heartbeat_tasks))
+    
+    asyncio.run(k1.start_server())
 else:
-    follower_thread = threading.Thread(target=asyncio.run(k1.connect_follower_heart()))
+    ports_websocket = tool.read_port_from_file()
+    if ports_websocket == []:
+        print("You should run leader first!!")
+        sys.exit(0)
+    # port_index = int(input("port index?"))
+    # print(f"port number at the follower side: {ports_websocket[port_index]}")
+    # follower_thread = threading.Thread(target=asyncio.run(k1.node_heartbeat(ports_websocket[port_index])))
+    follower_thread = threading.Thread(target=asyncio.run(k1.node_heartbeat("8765")))
     follower_thread.start()
 print("after if and else")
 # k1.heartbeat_server()
 while True:
     print("in while loop")
     k1.loop=k1.loop+1
-leader_heartbeat.join()
-follower_thread.join()
-leader_heartbeat_server.join()
+for thread in leader_heartbeat_threads:
+        thread.join()
+if k1.leader==0:
+    follower_thread.join()
+else:
+    leader_heartbeat_server.join()
+
