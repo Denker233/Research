@@ -17,13 +17,13 @@ import sys
 
 
 
-node_ID = "node1"
+node_ID = ""
 loop=0
 running_modules = [] #for each node
 connected_clients = set() #for leader node
 client_map = [] #for leader node
 module_to_assign_map=[] #wait to be assigned to other nodes
-cached_modules=[] # a remove element from list need to be implemented to make space for popular ones
+cached_modules=[] # list of cached modules for each node;a remove element from list need to be implemented to make space for popular ones
 
 
 
@@ -45,52 +45,64 @@ class Kern:
         self.credential = response["credential"]
         print(response)
     
+    def balancing_decision_run(self,f,content):
+        leadder_cpu = psutil.cpu_percent(interval=1)
+        leader_memory =psutil.virtual_memory().percent
+        leader_network=0.0
+        leader_node = {
+            'websocket': -1,
+            'cpu_usage':  leadder_cpu,
+            'memory_usage': leader_memory,
+            'network_latency': leader_network,
+            'score': tool.weighted_score(leadder_cpu,leader_memory,leader_network),
+            'running_modules' : running_modules,
+            'cached_modules' : cached_modules
+        }
+        client_map.append(leader_node)
+        sorted_client_map = sorted(client_map, key=lambda x: x['score'])
+        chosed_websocket = sorted_client_map[0]["websocket"]
+        # #use weighted round roubin to get the specific node to assign module
+        # weights = [1 / (client["cpu_usage"] * client["memory_usage"] * client["network_latency"]) for client in client_map]
+        # # Normalize the weights
+        # total_weight = sum(weights)
+        # weights = [weight / total_weight for weight in weights]
+        # algorithm = tool.weighted_round_robin(client_map,weights)["websocket"]
+        # chosed_websocket = next(algorithm)
+        if chosed_websocket == -1: # run at the leader node
+            subprocess.run(["python3", f.name])
+            print("module:{} running at the leader node".format(f.name))
+        else: #add to the ready to assign map and assign them at the next heartbeat cycle
+            #need to time it if it doesn't send to the specific node and try the next best node
+            module_to_assign_map.append({
+                'websocket':chosed_websocket,
+                'module_name': f.name.split(".")[0], 
+                'content' : content})#the second parameter stands for module name
+        client_map.remove(leader_node)
+
     def heartbeat_server(self):
         while True:
             print("in heart beat server")
             time.sleep(5)
             url = 'http://localhost:8001/post'
-            data = {"type":"beat", "node_ID": node_ID,"running_modules": running_modules,"cached_modules":cached_modules}
+            data = {"type":"beat", "node_ID": node_ID}
             response = requests.post(url, data=data)
             response = response.json()
             pong = response["result"]
             module_name = response["module_name"]
-            if self.download==0:
+            if module_name not in cached_modules:
                 download_response = requests.get(response["url"])
                 if download_response.status_code == 200:
                     with open(module_name+".py", "wb") as f:
                         f.write(download_response.content)
                         cached_modules.append(module_name)
-                    self.download=1
                     print(f.name)
-                    leadder_cpu = psutil.cpu_percent(interval=1)
-                    leader_memory =psutil.virtual_memory().percent
-                    leader_network=0.0
-                    leader_node = {
-                        'websocket': -1,
-                        'cpu_usage':  leadder_cpu,
-                        'memory_usage': leader_memory,
-                        'network_latency': leader_network,
-                        'score': tool.weighted_score(leadder_cpu,leader_memory,leader_network)
-                    }
-                    client_map.append(leader_node)
-                    sorted_client_map = sorted(client_map, key=lambda x: x['score'])
-                    chosed_websocket = sorted_client_map[0]["websocket"]
-                    # #use weighted round roubin to get the specific node to assign module
-                    # weights = [1 / (client["cpu_usage"] * client["memory_usage"] * client["network_latency"]) for client in client_map]
-                    # # Normalize the weights
-                    # total_weight = sum(weights)
-                    # weights = [weight / total_weight for weight in weights]
-                    # algorithm = tool.weighted_round_robin(client_map,weights)["websocket"]
-                    # chosed_websocket = next(algorithm)
-                    if chosed_websocket == -1: # run at the leader node
-                        subprocess.run(["python3", f.name])
-                    else: #add to the ready to assign map and assign them at the next heartbeat cycle
-                        #need to time it if it doesn't send to the specific node and try the next best node
-                        module_to_assign_map.append({websocket,module_name, download_response.content})
-                    print("File downloaded and executed successfully!")
+                    self.balancing_decision_run(f,download_response.content)
                 else:
                     print("Error downloading or executing file.")
+            else: #in cache then run it directly
+                with open(module_name+".py", "r") as f:
+                    content= f.read()
+                    self.balancing_decision_run(f,content)   
             print(pong)
             print(response)
 
@@ -101,7 +113,7 @@ class Kern:
             async with websockets.connect(url,ping_interval=None) as websocket:
                 cpu_usage = psutil.cpu_percent(interval=1)
                 memory_usage = psutil.virtual_memory().percent
-                await websocket.send("ping: {}, cpu usage: {}, memory_usage: {}".format(port,cpu_usage,memory_usage)) 
+                await websocket.send("ping: {}, cpu usage: {}, memory_usage: {},cached_modules: {},running_modules: {}".format(port,cpu_usage,memory_usage,cached_modules,running_modules)) 
                 result = await websocket.recv()
                 if result.split(":")[0]=="pong":
                     print(result)
@@ -123,7 +135,9 @@ class Kern:
             'cpu_usage': 0.0,
             'memory_usage': 0.0,
             'network_latency': 0.0,
-            'score': sys.float_info.max
+            'score': sys.float_info.max,
+            'running_modules' :[],
+            'cached_modules' : []
         })
 
         try:
@@ -131,7 +145,7 @@ class Kern:
 
                 for item in module_to_assign_map:
                     # if websocket matches then send the module content to the client
-                    if item[0] == websocket:
+                    if item['websocket'] == websocket:
                         response = item[1]+":"+item[2] #module_name:content
                         await websocket.send(response)
                         module_to_assign_map.remove(item) #remove the module sent from the list
@@ -147,13 +161,16 @@ class Kern:
                     ping=components[0].split(":")[1]
                     cpu_usage=components[1].split(":")[1]
                     memory_usage=components[2].split(":")[1]
+                    cached_modules_from_node = components[3].split(":")[1]
+                    running_modules_from_node = components[3].split(":")[1]
                     print(ping)
                     response="pong:"
                     client_map[-1]['cpu_usage'] = cpu_usage
                     client_map[-1]['memory_usage'] = memory_usage
                     client_map[-1]['network_latency'] = network_latency
                     client_map[-1]['score'] = tool.weighted_score(cpu_usage,memory_usage,network_latency)
-                    
+                    client_map[-1]['cached_modules'] = cached_modules_from_node
+                    client_map[-1]['running_modules'] = running_modules_from_node
                     print("network latency: {}".format(network_latency))
                 else:
                     response="wrong"
@@ -174,6 +191,7 @@ class Kern:
     
 
 k1=Kern()
+node_ID = input("node ID?")
 k1.boot()
 decision = input("Leader?")
 ports_websocket = []

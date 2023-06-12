@@ -9,8 +9,8 @@ from flask import Flask, request
 app = Flask(__name__)
 
 
-read_IDs = ["node1"]
-write_IDs = ["node1"]
+read_IDs = ["node1","node2","node3"]
+write_IDs = ["node1","node2","node3"]
 node_map = []
 module_name = ""
 
@@ -49,23 +49,14 @@ def post_handler():
                 if node["node_ID"]==request.form["node_ID"]:
                     print("two IDs are equal")
                     print(request.form.get("running_modules"))
-                    if request.form.get("running_modules") is not None:
-                        node["running_modules"]=request.form["running_modules"]
-                        print("after equalize two running modules")
-                    if request.form.get("cached_modules") is not None:
-                        node["cached_modules"]=request.form["cached_modules"]
-                        print("after equalize two cached_modules")
-                    if module_name not in node["running_modules"] or module_name not in node["cached_modules"]:
-                        module_name = "minrui"
-                        print("before data is formated")
-                        data = {"url":"https://dcsg-diot-frontend-kanishk-k.vercel.app/api/fetchModule/{}.py".format(module_name),"result":"pong from server","module_name":module_name}
-                        print("link send to leader")
-                        return data
-                    else:
-                        return 
-            #if there is a automation uploaded, it should trigger the change of module name then it will be sent to the leader node when the next heartbeat happen
-            
-        return "success"
+                    #if there is a automation uploaded, it should trigger the change of module name then it will be sent to the leader node when the next heartbeat happen
+                    module_name = "minrui"
+                    print("before data is formated")
+                    data = {"url":"https://dcsg-diot-frontend-kanishk-k.vercel.app/api/fetchModule/{}.py".format(module_name),"result":"pong from server","module_name":module_name}
+                    print("link send to leader")
+                    return data
+    else:
+        print("no read or write permission!!")
     
 
 
