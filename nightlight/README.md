@@ -1,4 +1,8 @@
 # DIoT:
+
+##Update:
+The current version is forcing to deload the module from leader node to follower node to test functionality. Since we are using the same computer, the cpu/memory usaege and network latency may not have reference value.
+
 ##Overview:
 The webserver heartbeats the leader node with link to acess the module using REST API.
 W
@@ -12,7 +16,11 @@ The load-balancing algorithms are weighted round robin and weighted-resource-bas
 webserver.py</br> kernob.py</br> tool.py</br>
 
 ## How to Run
-1. Open a terminal 
+You may need to activate the environment by typing (minrui.py is using modules of the virtual device platform if you are using your own module then the this part is not needed.)
+```source .venv/bin/activate```
+and in another terminal:
+```counterfit``` to connect to the virtual hardware platform
+1. Change the module name to the name of your choice in line 53 in webserver.py and Open a terminal 
 ```python3 webserver.py```
 
 2. Open another one

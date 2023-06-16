@@ -117,7 +117,7 @@ class Kern:
                 await websocket.send("ping: {}, cpu usage: {}, memory_usage: {},cached_modules: {},running_modules: {}".format(port,cpu_usage,memory_usage,cached_modules,running_modules)) 
                 result = await websocket.recv()
                 print("first result")
-                print(result)
+                # print(result)
                 if result.split(":")[0]=="pong":
                     print("second result")
                     print(result)
@@ -128,7 +128,19 @@ class Kern:
                     with open(module_name+".py", "w") as f:
                         f.write(module_content)
                         cached_modules.append(module_name)
-                        subprocess.run(["python3", f.name])
+                        try:
+                            print("in try")
+                            print(f.name)
+                            result = subprocess.run(["python3", f.name], capture_output=True, text=True)
+                            if result.returncode == 0:
+                                print("Command executed successfully!")
+                                print("Output:", result.stdout)
+                            else:
+                                print("Command execution failed!")
+                                print("Error:", result.stderr)
+                        except subprocess.CalledProcessError as e:
+                            print("Command execution failed with exception!")
+                            print("Exception:", e)
                     print("module running at follower node")
                     running_modules.append(module_name)
     
