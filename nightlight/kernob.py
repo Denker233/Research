@@ -51,8 +51,8 @@ class Kern:
         leader_network=0.0
         leader_node = {
             'websocket': -1,
-            'cpu_usage':  leadder_cpu,
-            'memory_usage': leader_memory,
+            'cpu_usage':  100,
+            'memory_usage': 100,
             'network_latency': leader_network,
             'score': tool.weighted_score(leadder_cpu,leader_memory,leader_network),
             'running_modules' : running_modules,
@@ -77,6 +77,7 @@ class Kern:
                 'websocket':chosed_websocket,
                 'module_name': f.name.split(".")[0], 
                 'content' : content})#the second parameter stands for module name
+            print("module to assign to follower node")
         client_map.remove(leader_node)
 
     def heartbeat_server(self):
@@ -115,20 +116,26 @@ class Kern:
                 memory_usage = psutil.virtual_memory().percent
                 await websocket.send("ping: {}, cpu usage: {}, memory_usage: {},cached_modules: {},running_modules: {}".format(port,cpu_usage,memory_usage,cached_modules,running_modules)) 
                 result = await websocket.recv()
+                print("first result")
+                print(result)
                 if result.split(":")[0]=="pong":
+                    print("second result")
                     print(result)
-                else:#recv a module:content download and run it
+                else:#recv a module:content download and run i
+                    print("in else statement")
                     module_name = result.split(":")[0]
                     module_content = result.split(":")[1]
-                    with open(module_name+".py", "wb") as f:
-                        f.write(download_response.content)
-                        cached_moduels.append(module_name)
-                    subprocess.run(["python3", f.name])
-                    modules_running.append(module_name)
+                    with open(module_name+".py", "w") as f:
+                        f.write(module_content)
+                        cached_modules.append(module_name)
+                        subprocess.run(["python3", f.name])
+                    print("module running at follower node")
+                    running_modules.append(module_name)
     
     async def handle_connection(self,websocket, path): #leader get data from follower
         # Add the client to the set of connected clients
         connected_clients.add(websocket)
+        print("websocket:{}".format(websocket))
         client_id = id(websocket)
         client_map.append ({
             'websocket': websocket,
@@ -145,10 +152,15 @@ class Kern:
 
                 for item in module_to_assign_map:
                     # if websocket matches then send the module content to the client
-                    if item['websocket'] == websocket:
-                        response = item[1]+":"+item[2] #module_name:content
-                        await websocket.send(response)
-                        module_to_assign_map.remove(item) #remove the module sent from the list
+                    # print("websocket from the module_map:{} and websocket of")
+                    for client in client_map:
+                        print("websocket from the module_map:{} and websocket of client_map{}".format(item['websocket'],client['websocket']))
+                        if item['websocket'] == client['websocket']:
+                            print("in sending module to follower")
+                            response = item["module_name"]+":"+item["content"] #module_name:content
+                            await websocket.send(response)
+                            print("module send to the follower")
+                            module_to_assign_map.remove(item) #remove the module sent from the list
                 # Receive message from the client
                 start_time = time.time()
                 message = await websocket.recv()
