@@ -26,7 +26,7 @@ connected_clients = set() #for leader node
 client_map = [] #for leader node
 module_to_assign_map=[] #wait to be assigned to other nodes
 cached_modules=[] # list of cached modules for each node;a remove element from list need to be implemented to make space for popular ones
-
+devices=[]
 
 
 app = Flask(__name__)
@@ -40,7 +40,15 @@ class Kern:
         self.leader_ip=None
         self.ID=None
 
-
+    def query_device(self):
+        f_name="hub_urls.txt"
+        hub_urls = []
+        with open(f_name, "r") as file:
+            for line in file:
+                url = line.strip()  # Remove leading/trailing whitespace
+                hub_urls.append(url)
+        for url in hub_urls:
+            devices.append(tool.find_device_load_info(url))
     def boot(self):
         url = "https://dcsg-diot-frontend.vercel.app/api/status"
         hostname = socket.gethostname()
@@ -53,7 +61,9 @@ class Kern:
         print("My IP address is "+str(ip_address))
         ip = urlopen('http://ip.42.pl/raw').read().decode()
         print('本机所在公网IP是: ', ip)
-        data = {"type":"boot", "name": system_name,"IP":'134.84.0.1'}
+        self.query_device()
+        print("devices are "+devices)
+        data = {"type":"boot", "name": system_name,"IP":'134.84.0.1',"devices":devices}
         response = requests.post(url, data=data)
         response = response.json()
         print(response)
